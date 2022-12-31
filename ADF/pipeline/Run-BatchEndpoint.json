@@ -1,0 +1,169 @@
+{
+	"name": "Run-BatchEndpoint",
+	"properties": {
+		"activities": [
+			{
+				"name": "Invoke Batch-Endpoint",
+				"type": "WebActivity",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().parameters.endpoint_uri",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"headers": {
+						"Content-Type": "application/json"
+					},
+					"body": {
+						"value": "@replace(replace('{\n    \"properties\": {\n    \t\"InputData\": {\n    \t\t\"mnistinput\": {\n    \t\t\t\"JobInputType\" : \"UriFolder\",\n    \t\t\t\"Uri\" : \"<JOB_INPUT_URI>\"\n    \t\t}\n        },\n        \"OutputData\": {\n            \"customOutput\": {\n                \"JobOutputType\" : \"UriFile\",\n                \"Uri\" : \"<JOB_OUTPUT_URI>\"\n            }\n        }\n    }\n}',\n'<JOB_INPUT_URI>', pipeline().parameters.endpoint_input_uri),\n'<JOB_OUTPUT_URI>', pipeline().parameters.endpoint_output_uri)",
+						"type": "Expression"
+					},
+					"authentication": {
+						"type": "MSI",
+						"resource": "https://ml.azure.com"
+					}
+				}
+			},
+			{
+				"name": "Wait for run",
+				"type": "Until",
+				"dependsOn": [
+					{
+						"activity": "Invoke Batch-Endpoint",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@and(contains(activity('Check status').output, 'properties'), or(equals(activity('Check status').output.properties.status, 'Completed'), equals(activity('Check status').output.properties.status, 'Failed')))",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "Check status",
+							"type": "WebActivity",
+							"dependsOn": [
+								{
+									"activity": "Wait",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"url": {
+									"value": "@concat('https://management.azure.com', activity('Invoke Batch-Endpoint').output.id, '?api-version=', pipeline().parameters.api_version)",
+									"type": "Expression"
+								},
+								"method": "GET",
+								"headers": {
+									"Content-Type": "application/json"
+								},
+								"authentication": {
+									"type": "MSI",
+									"resource": "https://management.azure.com"
+								}
+							}
+						},
+						{
+							"name": "Wait",
+							"type": "Wait",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"waitTimeInSeconds": {
+									"value": "@pipeline().parameters.poll_interval",
+									"type": "Expression"
+								}
+							}
+						}
+					],
+					"timeout": "0.12:00:00"
+				}
+			},
+			{
+				"name": "Copy data1",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Wait for run",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "JsonSource",
+						"storeSettings": {
+							"type": "AzureFileStorageReadSettings",
+							"recursive": true,
+							"enablePartitionDiscovery": false
+						},
+						"formatSettings": {
+							"type": "JsonReadSettings"
+						}
+					},
+					"enableStaging": false
+				},
+				"inputs": [
+					{
+						"referenceName": "Json1",
+						"type": "DatasetReference"
+					}
+				]
+			}
+		],
+		"parameters": {
+			"endpoint_uri": {
+				"type": "string",
+				"defaultValue": "https://credit-endpoint-adf822e8.eastus2.inference.ml.azure.com/score"
+			},
+			"api_version": {
+				"type": "string",
+				"defaultValue": "2020-09-01-preview"
+			},
+			"poll_interval": {
+				"type": "int",
+				"defaultValue": 30
+			},
+			"endpoint_input_uri": {
+				"type": "string",
+				"defaultValue": "https://storagee4nkhye5kdb64.blob.core.windows.net/datafactory/sample-request.json"
+			},
+			"endpoint_output_uri": {
+				"type": "string",
+				"defaultValue": "https://storagee4nkhye5kdb64.blob.core.windows.net/return.json"
+			}
+		},
+		"annotations": []
+	}
+}
